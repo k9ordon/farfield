@@ -546,6 +546,7 @@ export function App(): React.JSX.Element {
 
   /* Refs */
   const selectedThreadIdRef = useRef<string | null>(null);
+  const prevSelectedThreadIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<"chat" | "debug">(initialUiState.tab);
   const refreshTimerRef = useRef<number | null>(null);
   const pendingRefreshFlagsRef = useRef<RefreshFlags>({
@@ -969,6 +970,10 @@ export function App(): React.JSX.Element {
           }),
       readThread(threadId, { includeTurns })
     ]);
+    // Discard stale response if the user switched threads while awaiting
+    if (threadId !== selectedThreadIdRef.current) {
+      return;
+    }
     if ((live.conversationState?.turns.length ?? 0) > 0 || read.thread.turns.length > 0) {
       pendingMaterializationThreadIdsRef.current.delete(threadId);
     }
@@ -1052,7 +1057,16 @@ export function App(): React.JSX.Element {
       setLiveState(null);
       setReadThreadState(null);
       setStreamEvents([]);
+      prevSelectedThreadIdRef.current = null;
       return;
+    }
+    // Clear previous thread's state only when switching to a different thread,
+    // not when loadSelectedThread changes identity due to dependency updates
+    if (prevSelectedThreadIdRef.current !== selectedThreadId) {
+      setLiveState(null);
+      setReadThreadState(null);
+      setStreamEvents([]);
+      prevSelectedThreadIdRef.current = selectedThreadId;
     }
     void loadSelectedThread(selectedThreadId).catch((e) => setError(toErrorMessage(e)));
   }, [loadSelectedThread, selectedThreadId]);
