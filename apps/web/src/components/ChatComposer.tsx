@@ -76,20 +76,21 @@ export function ChatComposer({
   }, []);
 
   const sendDraft = useCallback(async () => {
+    if (draft.trim()) {
+      if (!canSend || isBusy) return;
+      await onSend(draft);
+      setDraft("");
+      previousHeightRef.current = 0;
+      return;
+    }
     if (isGenerating) {
       await onInterrupt();
       return;
     }
-    if (!draft.trim() || !canSend || isBusy) {
-      return;
-    }
-
-    await onSend(draft);
-    setDraft("");
-    previousHeightRef.current = 0;
   }, [canSend, draft, isBusy, isGenerating, onInterrupt, onSend]);
 
-  const disableSend = isGenerating ? !canSend || isBusy : !canSend || isBusy || !draft.trim();
+  const showStopButton = isGenerating && !draft.trim();
+  const disableSend = showStopButton ? !canSend || isBusy : !canSend || isBusy || !draft.trim();
 
   return (
     <div className="flex items-end gap-2 rounded-[28px] border border-border bg-card pl-4 pr-2.5 py-2.5 focus-within:border-muted-foreground/40 transition-colors">
@@ -116,16 +117,16 @@ export function ChatComposer({
           void sendDraft();
         }}
         disabled={disableSend}
-        title={isGenerating ? "Stop" : "Send"}
-        aria-label={isGenerating ? "Stop" : "Send"}
+        title={showStopButton ? "Stop" : "Send"}
+        aria-label={showStopButton ? "Stop" : "Send"}
         size="icon"
         className={`h-9 w-9 shrink-0 self-end rounded-full disabled:opacity-30 ${
-          isGenerating
+          showStopButton
             ? "bg-destructive text-destructive-foreground hover:bg-destructive/85"
             : "bg-foreground text-background hover:bg-foreground/80"
         }`}
       >
-        {isGenerating ? (
+        {showStopButton ? (
           <Square size={11} />
         ) : isBusy ? (
           <Loader2 size={13} className="animate-spin" />

@@ -53,6 +53,7 @@ import {
 import { useTheme } from "@/hooks/useTheme";
 import { ConversationItem } from "@/components/ConversationItem";
 import { ChatComposer } from "@/components/ChatComposer";
+import { QueuedMessageCard } from "@/components/QueuedMessageCard";
 import { PendingRequestCard } from "@/components/PendingRequestCard";
 import { StreamEventCard } from "@/components/StreamEventCard";
 import { Button } from "@/components/ui/button";
@@ -543,6 +544,7 @@ export function App(): React.JSX.Element {
   const [sidebarCollapsedGroups, setSidebarCollapsedGroups] = useState<Record<string, boolean>>(
     () => readSidebarCollapsedGroupsFromStorage()
   );
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
 
   /* Refs */
   const selectedThreadIdRef = useRef<string | null>(null);
@@ -1366,6 +1368,11 @@ export function App(): React.JSX.Element {
   const submitMessage = useCallback(async (draft: string) => {
     if (!draft.trim()) return;
 
+    if (isGenerating) {
+      setQueuedMessage(draft.trim());
+      return;
+    }
+
     setIsBusy(true);
     try {
       setError("");
@@ -1391,7 +1398,26 @@ export function App(): React.JSX.Element {
     } finally {
       setIsBusy(false);
     }
-  }, [refreshAll, selectedAgentId, selectedThreadId]);
+  }, [refreshAll, selectedAgentId, selectedThreadId, isGenerating]);
+
+  /* Auto-send queued message when generation completes */
+  const prevIsGeneratingRef = useRef(false);
+  useEffect(() => {
+    const wasGenerating = prevIsGeneratingRef.current;
+    prevIsGeneratingRef.current = isGenerating;
+    if (wasGenerating && !isGenerating && queuedMessage) {
+      const msg = queuedMessage;
+      setQueuedMessage(null);
+      void submitMessage(msg);
+    }
+  }, [isGenerating, queuedMessage, submitMessage]);
+
+  const steerQueuedMessage = useCallback(async () => {
+    if (!queuedMessage || !selectedThreadId) return;
+    const msg = queuedMessage;
+    setQueuedMessage(null);
+    await submitMessage(msg);
+  }, [queuedMessage, selectedThreadId, submitMessage]);
 
   const applyModeDraft = useCallback(async (draft: {
     modeKey: string;
@@ -1740,6 +1766,7 @@ export function App(): React.JSX.Element {
                             type="button"
                             onClick={() => {
                               setSelectedThreadId(thread.id);
+                              setQueuedMessage(null);
                               setMobileSidebarOpen(false);
                             }}
                             variant="ghost"
@@ -2138,6 +2165,17 @@ export function App(): React.JSX.Element {
                       <Loader2 size={11} className="animate-spin" />
                       <span className="reasoning-shimmer font-medium">Thinking…</span>
                     </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {queuedMessage && (
+                    <QueuedMessageCard
+                      text={queuedMessage}
+                      onSteer={() => void steerQueuedMessage()}
+                      onEdit={(text) => setQueuedMessage(text)}
+                      onDelete={() => setQueuedMessage(null)}
+                    />
                   )}
                 </AnimatePresence>
 
