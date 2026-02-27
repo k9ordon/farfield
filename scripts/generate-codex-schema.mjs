@@ -154,10 +154,41 @@ function runBunScript(script, cwd) {
   return typeof result.status === "number" ? result.status : 1;
 }
 
+function backupJsonFiles(jsonDir) {
+  const backup = new Map();
+  if (!fs.existsSync(jsonDir)) {
+    return backup;
+  }
+  for (const entry of fs.readdirSync(jsonDir, { withFileTypes: true, recursive: true })) {
+    if (entry.isFile() && entry.name.endsWith(".json")) {
+      const filePath = path.join(entry.parentPath ?? entry.path, entry.name);
+      const relPath = path.relative(jsonDir, filePath);
+      backup.set(relPath, fs.readFileSync(filePath));
+    }
+  }
+  return backup;
+}
+
+function restoreMissingJsonFiles(jsonDir, backup) {
+  let restored = 0;
+  for (const [relPath, content] of backup) {
+    const filePath = path.join(jsonDir, relPath);
+    if (!fs.existsSync(filePath)) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content);
+      process.stdout.write(`Restored missing schema: ${relPath}\n`);
+      restored += 1;
+    }
+  }
+  return restored;
+}
+
 function generateVariant(codexExecutable, outDir, variantName, experimental) {
   const variantDir = path.join(outDir, variantName);
   const tsDir = path.join(variantDir, "typescript");
   const jsonDir = path.join(variantDir, "json");
+
+  const jsonBackup = backupJsonFiles(jsonDir);
 
   fs.rmSync(variantDir, { recursive: true, force: true });
   fs.mkdirSync(variantDir, { recursive: true });
@@ -181,6 +212,8 @@ function generateVariant(codexExecutable, outDir, variantName, experimental) {
   if (jsonStatus !== 0) {
     process.exit(jsonStatus);
   }
+
+  restoreMissingJsonFiles(jsonDir, jsonBackup);
 }
 
 function writeMetadataFile(codexExecutable, outDir) {
