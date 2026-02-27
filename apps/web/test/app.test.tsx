@@ -88,6 +88,8 @@ let agentsFixture: {
     capabilities: CapabilityFixture;
     projectDirectories: string[];
     projectLabels?: Record<string, string>;
+    threadLabels?: Record<string, string>;
+    pinnedThreadIds?: string[];
   }>;
   defaultAgentId: "codex" | "opencode";
 };

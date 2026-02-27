@@ -20,6 +20,7 @@ import {
   Menu,
   Moon,
   PanelLeft,
+  Pin,
   Plus,
   RefreshCcw,
   Sun,
@@ -152,7 +153,9 @@ function formatDate(value: number | string | null | undefined): string {
   return "";
 }
 
-function threadLabel(thread: Thread): string {
+function threadLabel(thread: Thread, labelsById?: Map<string, string>): string {
+  const customLabel = labelsById?.get(thread.id);
+  if (customLabel) return customLabel;
   const text = thread.preview.trim();
   if (!text) return `thread ${thread.id.slice(0, 8)}`;
   return text;
@@ -597,6 +600,26 @@ export function App(): React.JSX.Element {
     }
     return labels;
   }, [agentDescriptors]);
+  const threadLabelsById = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const descriptor of agentDescriptors) {
+      for (const [threadId, label] of Object.entries(descriptor.threadLabels)) {
+        if (!labels.has(threadId)) {
+          labels.set(threadId, label);
+        }
+      }
+    }
+    return labels;
+  }, [agentDescriptors]);
+  const pinnedThreadIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const descriptor of agentDescriptors) {
+      for (const id of descriptor.pinnedThreadIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [agentDescriptors]);
   const groupedThreads = useMemo(() => {
     type Group = {
       key: string;
@@ -604,11 +627,35 @@ export function App(): React.JSX.Element {
       projectPath: string | null;
       latestUpdatedAt: number;
       preferredAgentId: AgentId | null;
+      pinned: boolean;
       threads: Thread[];
     };
     const groups = new Map<string, Group>();
 
+    // Collect pinned threads into a dedicated group
+    const pinnedGroup: Group = {
+      key: "pinned",
+      label: "Pinned",
+      projectPath: null,
+      latestUpdatedAt: 0,
+      preferredAgentId: null,
+      pinned: true,
+      threads: []
+    };
+
     for (const thread of threads) {
+      if (pinnedThreadIds.has(thread.id)) {
+        pinnedGroup.threads.push(thread);
+        const updatedAt = typeof thread.updatedAt === "number" ? thread.updatedAt : 0;
+        if (updatedAt > pinnedGroup.latestUpdatedAt) {
+          pinnedGroup.latestUpdatedAt = updatedAt;
+        }
+        if (!pinnedGroup.preferredAgentId) {
+          pinnedGroup.preferredAgentId = thread.agentId;
+        }
+        continue;
+      }
+
       const cwd = typeof thread.cwd === "string" && thread.cwd.trim() ? thread.cwd.trim() : null;
       const path = typeof thread.path === "string" && thread.path.trim() ? thread.path.trim() : null;
       const projectPath = cwd ?? path;
@@ -635,6 +682,7 @@ export function App(): React.JSX.Element {
           projectPath,
           latestUpdatedAt: updatedAt,
           preferredAgentId: threadAgentId,
+          pinned: false,
           threads: [thread]
         });
       }
@@ -656,13 +704,19 @@ export function App(): React.JSX.Element {
           projectPath: normalized,
           latestUpdatedAt: 0,
           preferredAgentId: descriptor.id,
+          pinned: false,
           threads: []
         });
       }
     }
 
-    return Array.from(groups.values()).sort((left, right) => right.latestUpdatedAt - left.latestUpdatedAt);
-  }, [agentDescriptors, projectLabelsByPath, threads]);
+    const sorted = Array.from(groups.values()).sort((left, right) => right.latestUpdatedAt - left.latestUpdatedAt);
+    // Put pinned group at the top if it has threads
+    if (pinnedGroup.threads.length > 0) {
+      return [pinnedGroup, ...sorted];
+    }
+    return sorted;
+  }, [agentDescriptors, pinnedThreadIds, projectLabelsByPath, threads]);
   const conversationState = useMemo(() => {
     const liveConversationState = liveState?.conversationState ?? null;
     const readConversationState = readThreadState?.thread ?? null;
@@ -1657,14 +1711,16 @@ export function App(): React.JSX.Element {
                       variant="ghost"
                       className="h-6 flex-1 justify-start gap-2 rounded-lg px-2 py-1 text-left text-[13px] tracking-tight font-normal text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     >
-                      {isCollapsed ? (
+                      {group.pinned ? (
+                        <Pin size={13} className="shrink-0" />
+                      ) : isCollapsed ? (
                         <Folder size={13} className="shrink-0" />
                       ) : (
                         <FolderOpen size={13} className="shrink-0" />
                       )}
                       <span className="min-w-0 truncate">{group.label}</span>
                     </Button>
-                    {availableAgentIds.length <= 1 ? (
+                    {!group.pinned && (availableAgentIds.length <= 1 ? (
                       <IconBtn
                         onClick={() => {
                           if (!group.projectPath) {
@@ -1722,7 +1778,7 @@ export function App(): React.JSX.Element {
                           ))}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    )}
+                    ))}
                   </div>
                   {!isCollapsed && (
                     <div className="space-y-1 pl-4 pt-0.5">
@@ -1759,7 +1815,7 @@ export function App(): React.JSX.Element {
                                   />
                                 </span>
                               )}
-                                <span className="truncate">{threadLabel(thread)}</span>
+                                <span className="truncate">{threadLabel(thread, threadLabelsById)}</span>
                               </span>
                             <span className="shrink-0 flex items-center gap-1.5">
                               {threadIsGenerating && (
@@ -1926,7 +1982,7 @@ export function App(): React.JSX.Element {
             )}
             <div className="min-w-0">
               <div className="text-sm font-medium truncate leading-5 flex items-center gap-1.5">
-                {selectedThread ? threadLabel(selectedThread) : "No thread selected"}
+                {selectedThread ? threadLabel(selectedThread, threadLabelsById) : "No thread selected"}
                 {selectedThread && activeAgentLabel && (
                   <span className="shrink-0 h-5 w-5 rounded-md bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
                     <AgentFavicon
