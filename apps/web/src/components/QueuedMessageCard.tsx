@@ -1,98 +1,54 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 
 type QueuedMessageCardProps = {
-  text: string;
+  messages: string[];
   onSteer: () => void;
-  onEdit: (text: string) => void;
-  onDelete: () => void;
+  onDelete: (index: number) => void;
 };
 
 export function QueuedMessageCard({
-  text,
+  messages,
   onSteer,
-  onEdit,
   onDelete
 }: QueuedMessageCardProps): React.JSX.Element {
-  const [localText, setLocalText] = useState(text);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    setLocalText(text);
-  }, [text]);
-
-  const handleBlur = useCallback(() => {
-    const trimmed = localText.trim();
-    if (trimmed && trimmed !== text) {
-      onEdit(trimmed);
-    } else if (!trimmed) {
-      setLocalText(text);
-    }
-  }, [localText, text, onEdit]);
-
-  const resizeTextarea = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
-  }, []);
-
-  useEffect(() => {
-    resizeTextarea();
-  }, [localText, resizeTextarea]);
-
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      initial={{ opacity: 0, y: 6, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 8, scale: 0.98 }}
-      transition={{ duration: 0.15 }}
-      className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5"
+      exit={{ opacity: 0, y: 6, scale: 0.98 }}
+      transition={{ duration: 0.12 }}
+      className="flex items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/5 px-2 py-1"
     >
-      <Textarea
-        ref={textareaRef}
-        value={localText}
-        onChange={(e) => {
-          setLocalText(e.target.value);
-          resizeTextarea();
-        }}
-        onBlur={handleBlur}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            handleBlur();
-            onSteer();
-          }
-        }}
-        rows={1}
-        className="flex-1 min-h-7 max-h-[120px] resize-none overflow-y-auto border-0 bg-transparent px-0 py-0.5 text-sm leading-5 shadow-none focus-visible:ring-0"
-      />
-      <div className="flex items-center gap-1 shrink-0 pt-0.5">
-        <Button
-          type="button"
-          onClick={onSteer}
-          title="Send now"
-          aria-label="Send now"
-          size="icon"
-          className="h-7 w-7 rounded-full bg-foreground text-background hover:bg-foreground/80"
-        >
-          <ArrowUp size={12} />
-        </Button>
-        <Button
-          type="button"
-          onClick={onDelete}
-          title="Delete queued message"
-          aria-label="Delete queued message"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 size={12} />
-        </Button>
+      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+        {messages.map((msg, i) => (
+          <div key={i} className="flex items-center gap-1 min-w-0">
+            <span className="truncate text-xs leading-4 text-foreground/80">{msg}</span>
+            <Button
+              type="button"
+              onClick={() => onDelete(i)}
+              title="Remove"
+              aria-label="Remove queued message"
+              variant="ghost"
+              size="icon"
+              className="h-4 w-4 shrink-0 rounded text-muted-foreground/60 hover:text-destructive"
+            >
+              <Trash2 size={10} />
+            </Button>
+          </div>
+        ))}
       </div>
+      <Button
+        type="button"
+        onClick={onSteer}
+        title="Send now"
+        aria-label="Send now"
+        size="icon"
+        className="h-5 w-5 shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/80"
+      >
+        <ArrowUp size={10} />
+      </Button>
     </motion.div>
   );
 }

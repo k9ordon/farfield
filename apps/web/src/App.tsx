@@ -544,7 +544,7 @@ export function App(): React.JSX.Element {
   const [sidebarCollapsedGroups, setSidebarCollapsedGroups] = useState<Record<string, boolean>>(
     () => readSidebarCollapsedGroupsFromStorage()
   );
-  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
 
   /* Refs */
   const selectedThreadIdRef = useRef<string | null>(null);
@@ -1369,7 +1369,7 @@ export function App(): React.JSX.Element {
     if (!draft.trim()) return;
 
     if (isGenerating) {
-      setQueuedMessage(draft.trim());
+      setQueuedMessages((prev) => [...prev, draft.trim()]);
       return;
     }
 
@@ -1405,19 +1405,19 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const wasGenerating = prevIsGeneratingRef.current;
     prevIsGeneratingRef.current = isGenerating;
-    if (wasGenerating && !isGenerating && queuedMessage) {
-      const msg = queuedMessage;
-      setQueuedMessage(null);
+    if (wasGenerating && !isGenerating && queuedMessages.length > 0) {
+      const [msg, ...rest] = queuedMessages;
+      setQueuedMessages(rest);
       void submitMessage(msg);
     }
-  }, [isGenerating, queuedMessage, submitMessage]);
+  }, [isGenerating, queuedMessages, submitMessage]);
 
   const steerQueuedMessage = useCallback(async () => {
-    if (!queuedMessage || !selectedThreadId) return;
-    const msg = queuedMessage;
-    setQueuedMessage(null);
+    if (queuedMessages.length === 0 || !selectedThreadId) return;
+    const [msg, ...rest] = queuedMessages;
+    setQueuedMessages(rest);
     await submitMessage(msg);
-  }, [queuedMessage, selectedThreadId, submitMessage]);
+  }, [queuedMessages, selectedThreadId, submitMessage]);
 
   const applyModeDraft = useCallback(async (draft: {
     modeKey: string;
@@ -1766,7 +1766,7 @@ export function App(): React.JSX.Element {
                             type="button"
                             onClick={() => {
                               setSelectedThreadId(thread.id);
-                              setQueuedMessage(null);
+                              setQueuedMessages([]);
                               setMobileSidebarOpen(false);
                             }}
                             variant="ghost"
@@ -2169,12 +2169,11 @@ export function App(): React.JSX.Element {
                 </AnimatePresence>
 
                 <AnimatePresence>
-                  {queuedMessage && (
+                  {queuedMessages.length > 0 && (
                     <QueuedMessageCard
-                      text={queuedMessage}
+                      messages={queuedMessages}
                       onSteer={() => void steerQueuedMessage()}
-                      onEdit={(text) => setQueuedMessage(text)}
-                      onDelete={() => setQueuedMessage(null)}
+                      onDelete={(i) => setQueuedMessages((prev) => prev.filter((_, idx) => idx !== i))}
                     />
                   )}
                 </AnimatePresence>
