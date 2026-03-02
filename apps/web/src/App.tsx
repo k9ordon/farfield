@@ -1394,28 +1394,16 @@ export function App(): React.JSX.Element {
     }
   }, [refreshAll, selectedAgentId, selectedThreadId]);
 
-  /* Auto-drain queued messages when generation completes */
-  const [isSendingQueued, setIsSendingQueued] = useState(false);
-
   const submitMessage = useCallback(async (draft: string) => {
     if (!draft.trim()) return;
-    if (isGenerating || isBusy || isSendingQueued) {
+    if (isGenerating || isBusy) {
       setQueuedMessages((prev) => [...prev, draft.trim()]);
       return;
     }
     await doSendMessage(draft);
-  }, [isGenerating, isBusy, isSendingQueued, doSendMessage]);
-  useEffect(() => {
-    if (isGenerating || isSendingQueued || queuedMessages.length === 0) return;
-    const msg = queuedMessages[0]!;
-    setIsSendingQueued(true);
-    setQueuedMessages(queuedMessages.slice(1));
-    doSendMessage(msg).finally(() => {
-      setIsSendingQueued(false);
-    });
-  }, [isGenerating, isSendingQueued, queuedMessages, doSendMessage]);
+  }, [isGenerating, isBusy, doSendMessage]);
 
-  const steerQueuedMessage = useCallback(async () => {
+  const sendNextQueued = useCallback(async () => {
     if (queuedMessages.length === 0 || !selectedThreadId) return;
     const msg = queuedMessages[0]!;
     setQueuedMessages(queuedMessages.slice(1));
@@ -2175,7 +2163,7 @@ export function App(): React.JSX.Element {
                   {queuedMessages.length > 0 && (
                     <QueuedMessageCard
                       messages={queuedMessages}
-                      onSteer={() => void steerQueuedMessage()}
+                      onSteer={() => void sendNextQueued()}
                       onDelete={(i) => setQueuedMessages((prev) => prev.filter((_, idx) => idx !== i))}
                     />
                   )}
