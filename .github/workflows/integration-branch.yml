@@ -27,8 +27,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # List open non-draft PRs
-          prs=$(gh pr list --state open --json number,headRefName,isDraft --jq '[.[] | select(.isDraft == false)]')
+          # List open non-draft PRs targeting main, in deterministic order
+          prs=$(gh pr list --state open --base main --json number,headRefName,isDraft --jq '[.[] | select(.isDraft == false)] | sort_by(.number)')
           count=$(echo "$prs" | jq length)
 
           if [ "$count" -eq 0 ]; then
@@ -63,8 +63,14 @@ jobs:
             fi
           done
 
-          # Push the integration branch
-          git push --force origin integration
+          # Push only when integration tree content changes
+          new_tree=$(git show -s --format=%T HEAD)
+          remote_tree="$(git show -s --format=%T origin/integration 2>/dev/null || true)"
+          if [ "$new_tree" = "$remote_tree" ]; then
+            echo "Integration tree unchanged; skipping push."
+          else
+            git push --force origin integration
+          fi
 
           # Write job summary
           {
