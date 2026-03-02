@@ -1394,17 +1394,17 @@ export function App(): React.JSX.Element {
     }
   }, [refreshAll, selectedAgentId, selectedThreadId]);
 
+  /* Auto-drain queued messages when generation completes */
+  const [isSendingQueued, setIsSendingQueued] = useState(false);
+
   const submitMessage = useCallback(async (draft: string) => {
     if (!draft.trim()) return;
-    if (isGenerating) {
+    if (isGenerating || isBusy || isSendingQueued) {
       setQueuedMessages((prev) => [...prev, draft.trim()]);
       return;
     }
     await doSendMessage(draft);
-  }, [isGenerating, doSendMessage]);
-
-  /* Auto-drain queued messages when generation completes */
-  const [isSendingQueued, setIsSendingQueued] = useState(false);
+  }, [isGenerating, isBusy, isSendingQueued, doSendMessage]);
   useEffect(() => {
     if (isGenerating || isSendingQueued || queuedMessages.length === 0) return;
     const msg = queuedMessages[0]!;

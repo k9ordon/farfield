@@ -77,7 +77,7 @@ export function ChatComposer({
 
   const sendDraft = useCallback(async () => {
     if (draft.trim()) {
-      if (!canSend || isBusy) return;
+      if (!canSend) return;
       await onSend(draft);
       setDraft("");
       previousHeightRef.current = 0;
@@ -87,7 +87,7 @@ export function ChatComposer({
       await onInterrupt();
       return;
     }
-  }, [canSend, draft, isBusy, isGenerating, onInterrupt, onSend]);
+  }, [canSend, draft, isGenerating, onInterrupt, onSend]);
 
   const showStopButton = isGenerating && !draft.trim();
   const disableSend = showStopButton ? !canSend || isBusy : !canSend || isBusy || !draft.trim();
