@@ -1403,10 +1403,10 @@ export function App(): React.JSX.Element {
     await doSendMessage(draft);
   }, [isGenerating, isBusy, doSendMessage]);
 
-  const sendNextQueued = useCallback(async () => {
-    if (queuedMessages.length === 0 || !selectedThreadId) return;
-    const msg = queuedMessages[0]!;
-    setQueuedMessages(queuedMessages.slice(1));
+  const sendQueued = useCallback(async (index: number) => {
+    if (index < 0 || index >= queuedMessages.length || !selectedThreadId) return;
+    const msg = queuedMessages[index]!;
+    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
     await doSendMessage(msg);
   }, [queuedMessages, selectedThreadId, doSendMessage]);
 
@@ -2163,7 +2163,7 @@ export function App(): React.JSX.Element {
                   {queuedMessages.length > 0 && (
                     <QueuedMessageCard
                       messages={queuedMessages}
-                      onSteer={() => void sendNextQueued()}
+                      onSend={(i) => void sendQueued(i)}
                       onDelete={(i) => setQueuedMessages((prev) => prev.filter((_, idx) => idx !== i))}
                     />
                   )}
