@@ -1365,14 +1365,8 @@ export function App(): React.JSX.Element {
   }, [activeTab, selectedThreadId]);
 
   /* Actions */
-  const submitMessage = useCallback(async (draft: string) => {
+  const doSendMessage = useCallback(async (draft: string) => {
     if (!draft.trim()) return;
-
-    if (isGenerating) {
-      setQueuedMessages((prev) => [...prev, draft.trim()]);
-      return;
-    }
-
     setIsBusy(true);
     try {
       setError("");
@@ -1398,26 +1392,35 @@ export function App(): React.JSX.Element {
     } finally {
       setIsBusy(false);
     }
-  }, [refreshAll, selectedAgentId, selectedThreadId, isGenerating]);
+  }, [refreshAll, selectedAgentId, selectedThreadId]);
 
-  /* Auto-send queued message when generation completes */
-  const prevIsGeneratingRef = useRef(false);
-  useEffect(() => {
-    const wasGenerating = prevIsGeneratingRef.current;
-    prevIsGeneratingRef.current = isGenerating;
-    if (wasGenerating && !isGenerating && queuedMessages.length > 0) {
-      const [msg, ...rest] = queuedMessages;
-      setQueuedMessages(rest);
-      void submitMessage(msg);
+  const submitMessage = useCallback(async (draft: string) => {
+    if (!draft.trim()) return;
+    if (isGenerating) {
+      setQueuedMessages((prev) => [...prev, draft.trim()]);
+      return;
     }
-  }, [isGenerating, queuedMessages, submitMessage]);
+    await doSendMessage(draft);
+  }, [isGenerating, doSendMessage]);
+
+  /* Auto-drain queued messages when generation completes */
+  const [isSendingQueued, setIsSendingQueued] = useState(false);
+  useEffect(() => {
+    if (isGenerating || isSendingQueued || queuedMessages.length === 0) return;
+    const msg = queuedMessages[0]!;
+    setIsSendingQueued(true);
+    setQueuedMessages(queuedMessages.slice(1));
+    doSendMessage(msg).finally(() => {
+      setIsSendingQueued(false);
+    });
+  }, [isGenerating, isSendingQueued, queuedMessages, doSendMessage]);
 
   const steerQueuedMessage = useCallback(async () => {
     if (queuedMessages.length === 0 || !selectedThreadId) return;
-    const [msg, ...rest] = queuedMessages;
-    setQueuedMessages(rest);
-    await submitMessage(msg);
-  }, [queuedMessages, selectedThreadId, submitMessage]);
+    const msg = queuedMessages[0]!;
+    setQueuedMessages(queuedMessages.slice(1));
+    await doSendMessage(msg);
+  }, [queuedMessages, selectedThreadId, doSendMessage]);
 
   const applyModeDraft = useCallback(async (draft: {
     modeKey: string;
