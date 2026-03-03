@@ -20,6 +20,7 @@ import {
   Menu,
   Moon,
   PanelLeft,
+  Pin,
   Plus,
   RefreshCcw,
   Sun,
@@ -199,6 +200,7 @@ const APP_DEFAULT_VALUE = "__app_default__";
 const ASSUMED_APP_DEFAULT_MODEL = "gpt-5.3-codex";
 const ASSUMED_APP_DEFAULT_EFFORT = "medium";
 const SIDEBAR_COLLAPSED_GROUPS_STORAGE_KEY = "farfield.sidebar.collapsed-groups.v1";
+const PINNED_THREAD_IDS_STORAGE_KEY = "farfield.sidebar.pinned-thread-ids.v1";
 const AGENT_FAVICON_BY_ID: Record<AgentId, string> = {
   codex: "https://openai.com/favicon.ico",
   opencode: "https://opencode.ai/favicon.ico"
@@ -387,6 +389,76 @@ function basenameFromPath(value: string): string {
   return parts[parts.length - 1] ?? normalized;
 }
 
+function threadSortTimestamp(thread: Thread): number {
+  if (typeof thread.updatedAt === "number") {
+    return thread.updatedAt;
+  }
+  if (typeof thread.createdAt === "number") {
+    return thread.createdAt;
+  }
+  return 0;
+}
+
+function compareThreadsByRecency(left: Thread, right: Thread): number {
+  const timestampDiff = threadSortTimestamp(right) - threadSortTimestamp(left);
+  if (timestampDiff !== 0) {
+    return timestampDiff;
+  }
+
+  const createdLeft = typeof left.createdAt === "number" ? left.createdAt : 0;
+  const createdRight = typeof right.createdAt === "number" ? right.createdAt : 0;
+  const createdDiff = createdRight - createdLeft;
+  if (createdDiff !== 0) {
+    return createdDiff;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function readPinnedThreadIdsFromStorage(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const storage = window.localStorage as Partial<Storage> | undefined;
+    if (!storage || typeof storage.getItem !== "function") {
+      return [];
+    }
+    const raw = storage.getItem(PINNED_THREAD_IDS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const dedupedIds = new Set<string>();
+    for (const value of parsed) {
+      if (typeof value === "string" && value.length > 0) {
+        dedupedIds.add(value);
+      }
+    }
+    return Array.from(dedupedIds);
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedThreadIdsToStorage(value: string[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const storage = window.localStorage as Partial<Storage> | undefined;
+    if (!storage || typeof storage.setItem !== "function") {
+      return;
+    }
+    storage.setItem(PINNED_THREAD_IDS_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
 function readSidebarCollapsedGroupsFromStorage(): Record<string, boolean> {
   if (typeof window === "undefined") {
     return {};
@@ -543,6 +615,9 @@ export function App(): React.JSX.Element {
   const [sidebarCollapsedGroups, setSidebarCollapsedGroups] = useState<Record<string, boolean>>(
     () => readSidebarCollapsedGroupsFromStorage()
   );
+  const [pinnedThreadIds, setPinnedThreadIds] = useState<string[]>(
+    () => readPinnedThreadIdsFromStorage()
+  );
 
   /* Refs */
   const selectedThreadIdRef = useRef<string | null>(null);
@@ -597,6 +672,19 @@ export function App(): React.JSX.Element {
     }
     return labels;
   }, [agentDescriptors]);
+  const pinnedThreadIdsSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
+  const sortedThreads = useMemo(
+    () => [...threads].sort(compareThreadsByRecency),
+    [threads]
+  );
+  const pinnedThreads = useMemo(
+    () => sortedThreads.filter((thread) => pinnedThreadIdsSet.has(thread.id)),
+    [pinnedThreadIdsSet, sortedThreads]
+  );
+  const unpinnedThreads = useMemo(
+    () => sortedThreads.filter((thread) => !pinnedThreadIdsSet.has(thread.id)),
+    [pinnedThreadIdsSet, sortedThreads]
+  );
   const groupedThreads = useMemo(() => {
     type Group = {
       key: string;
@@ -608,15 +696,15 @@ export function App(): React.JSX.Element {
     };
     const groups = new Map<string, Group>();
 
-    for (const thread of threads) {
+    for (const thread of unpinnedThreads) {
       const cwd = typeof thread.cwd === "string" && thread.cwd.trim() ? thread.cwd.trim() : null;
       const path = typeof thread.path === "string" && thread.path.trim() ? thread.path.trim() : null;
       const projectPath = cwd ?? path;
-      const key = projectPath ? `project:${projectPath}` : "project:unknown";
       const label = projectPath
         ? (projectLabelsByPath.get(projectPath) ?? basenameFromPath(projectPath))
         : "Unknown";
-      const updatedAt = typeof thread.updatedAt === "number" ? thread.updatedAt : 0;
+      const key = `project:${label.trim().toLocaleLowerCase()}`;
+      const updatedAt = threadSortTimestamp(thread);
       const threadAgentId = thread.agentId;
 
       const existing = groups.get(key);
@@ -627,6 +715,10 @@ export function App(): React.JSX.Element {
         }
         if (updatedAt > existing.latestUpdatedAt) {
           existing.latestUpdatedAt = updatedAt;
+          existing.projectPath = projectPath;
+          if (threadAgentId) {
+            existing.preferredAgentId = threadAgentId;
+          }
         }
       } else {
         groups.set(key, {
@@ -646,13 +738,14 @@ export function App(): React.JSX.Element {
         if (!normalized) {
           continue;
         }
-        const key = `project:${normalized}`;
+        const label = projectLabelsByPath.get(normalized) ?? basenameFromPath(normalized);
+        const key = `project:${label.trim().toLocaleLowerCase()}`;
         if (groups.has(key)) {
           continue;
         }
         groups.set(key, {
           key,
-          label: projectLabelsByPath.get(normalized) ?? basenameFromPath(normalized),
+          label,
           projectPath: normalized,
           latestUpdatedAt: 0,
           preferredAgentId: descriptor.id,
@@ -661,8 +754,19 @@ export function App(): React.JSX.Element {
       }
     }
 
-    return Array.from(groups.values()).sort((left, right) => right.latestUpdatedAt - left.latestUpdatedAt);
-  }, [agentDescriptors, projectLabelsByPath, threads]);
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        threads: [...group.threads].sort(compareThreadsByRecency)
+      }))
+      .sort((left, right) => {
+        const updatedAtDiff = right.latestUpdatedAt - left.latestUpdatedAt;
+        if (updatedAtDiff !== 0) {
+          return updatedAtDiff;
+        }
+        return left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
+      });
+  }, [agentDescriptors, projectLabelsByPath, unpinnedThreads]);
   const conversationState = useMemo(() => {
     const liveConversationState = liveState?.conversationState ?? null;
     const readConversationState = readThreadState?.thread ?? null;
@@ -1279,6 +1383,10 @@ export function App(): React.JSX.Element {
   }, [sidebarCollapsedGroups]);
 
   useEffect(() => {
+    writePinnedThreadIdsToStorage(pinnedThreadIds);
+  }, [pinnedThreadIds]);
+
+  useEffect(() => {
     isChatAtBottomRef.current = isChatAtBottom;
   }, [isChatAtBottom]);
 
@@ -1547,8 +1655,82 @@ export function App(): React.JSX.Element {
     void createNewThread(projectPath, onlyAgentId);
   }, [availableAgentIds, createNewThread]);
 
-  const renderSidebarContent = (viewport: "desktop" | "mobile"): React.JSX.Element => (
-    <>
+  const togglePinnedThread = useCallback((threadId: string) => {
+    setPinnedThreadIds((previousIds) => {
+      if (previousIds.includes(threadId)) {
+        return previousIds.filter((id) => id !== threadId);
+      }
+      return [threadId, ...previousIds];
+    });
+  }, []);
+
+  const renderSidebarContent = (viewport: "desktop" | "mobile"): React.JSX.Element => {
+    const renderSidebarThreadRow = (thread: Thread): React.JSX.Element => {
+      const isSelected = thread.id === selectedThreadId;
+      const threadIsGenerating = isSelected && isGenerating;
+      const isPinned = pinnedThreadIdsSet.has(thread.id);
+
+      return (
+        <div key={thread.id} className="group/thread flex items-center gap-1">
+          <Button
+            type="button"
+            onClick={() => {
+              setSelectedThreadId(thread.id);
+              setMobileSidebarOpen(false);
+            }}
+            variant="ghost"
+            className={`w-full min-w-0 h-auto flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] tracking-tight font-normal transition-colors ${
+              isSelected
+                ? "bg-muted/90 text-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            }`}
+          >
+            <span className="min-w-0 flex-1 flex items-center gap-1.5 truncate leading-5">
+              {thread.agentId && (
+                <span className="shrink-0 h-4 w-4 rounded-sm bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
+                  <AgentFavicon
+                    agentId={thread.agentId}
+                    label={agentsById[thread.agentId]?.label ?? "Agent"}
+                    className="h-3.5 w-3.5"
+                  />
+                </span>
+              )}
+              <span className="truncate">{threadLabel(thread)}</span>
+            </span>
+            <span className="shrink-0 flex items-center gap-1.5">
+              {threadIsGenerating && (
+                <Loader2 size={11} className="animate-spin text-muted-foreground/70" />
+              )}
+              {thread.updatedAt && (
+                <span className="text-[10px] text-muted-foreground/50">
+                  {formatDate(thread.updatedAt)}
+                </span>
+              )}
+            </span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={(event) => {
+              event.stopPropagation();
+              togglePinnedThread(thread.id);
+            }}
+            className={`h-7 w-7 shrink-0 rounded-lg transition ${
+              isPinned
+                ? "text-foreground bg-muted/70 hover:bg-muted"
+                : "text-muted-foreground/60 opacity-0 group-hover/thread:opacity-100 hover:text-foreground hover:bg-muted/70"
+            }`}
+            title={isPinned ? "Unpin thread" : "Pin thread"}
+          >
+            <Pin size={12} className={isPinned ? "fill-current" : ""} />
+          </Button>
+        </div>
+      );
+    };
+
+    return (
+      <>
       <div className="relative z-20 h-14 shrink-0 px-4">
         <div
           aria-hidden="true"
@@ -1637,7 +1819,18 @@ export function App(): React.JSX.Element {
               )}
             </div>
           )}
-          <div className="space-y-2 pr-2">
+          <div className="space-y-3 pr-2">
+            {pinnedThreads.length > 0 && (
+              <div className="space-y-1">
+                <div className="px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                  Pinned
+                </div>
+                <div className="space-y-1">
+                  {pinnedThreads.map((thread) => renderSidebarThreadRow(thread))}
+                </div>
+              </div>
+            )}
+
             {groupedThreads.map((group) => {
               const hasSelectedThread = group.threads.some((thread) => thread.id === selectedThreadId);
               const isCollapsed = hasSelectedThread ? false : Boolean(sidebarCollapsedGroups[group.key]);
@@ -1731,49 +1924,7 @@ export function App(): React.JSX.Element {
                           No threads yet
                         </div>
                       )}
-                      {group.threads.map((thread) => {
-                        const isSelected = thread.id === selectedThreadId;
-                        const threadIsGenerating = isSelected && isGenerating;
-                        return (
-                          <Button
-                            key={thread.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedThreadId(thread.id);
-                              setMobileSidebarOpen(false);
-                            }}
-                            variant="ghost"
-                            className={`w-full min-w-0 h-auto flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] tracking-tight font-normal transition-colors ${
-                              isSelected
-                                ? "bg-muted/90 text-foreground shadow-sm"
-                                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                            }`}
-                            >
-                              <span className="min-w-0 flex-1 flex items-center gap-1.5 truncate leading-5">
-                              {thread.agentId && (
-                                <span className="shrink-0 h-4 w-4 rounded-sm bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
-                                  <AgentFavicon
-                                    agentId={thread.agentId}
-                                    label={agentsById[thread.agentId]?.label ?? "Agent"}
-                                    className="h-3.5 w-3.5"
-                                  />
-                                </span>
-                              )}
-                                <span className="truncate">{threadLabel(thread)}</span>
-                              </span>
-                            <span className="shrink-0 flex items-center gap-1.5">
-                              {threadIsGenerating && (
-                                <Loader2 size={11} className="animate-spin text-muted-foreground/70" />
-                              )}
-                              {thread.updatedAt && (
-                                <span className="text-[10px] text-muted-foreground/50">
-                                  {formatDate(thread.updatedAt)}
-                                </span>
-                              )}
-                            </span>
-                          </Button>
-                        );
-                      })}
+                      {group.threads.map((thread) => renderSidebarThreadRow(thread))}
                     </div>
                   )}
                 </div>
@@ -1843,7 +1994,8 @@ export function App(): React.JSX.Element {
         </div>
       </div>
     </>
-  );
+    );
+  };
 
   /* ── Render ─────────────────────────────────────────────── */
   return (
