@@ -66,8 +66,23 @@ jobs:
             done
           fi
 
-          # Always move the integration branch tip to this exact rebuild.
-          git push --force origin integration
+          # Always move integration to this exact rebuild.
+          # Retry a few times to handle concurrent runs updating the same ref.
+          push_succeeded=0
+          for attempt in 1 2 3; do
+            if git push --force origin integration; then
+              push_succeeded=1
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              git fetch origin integration
+              sleep 2
+            fi
+          done
+          if [ "$push_succeeded" -ne 1 ]; then
+            echo "Failed to push integration after retries."
+            exit 1
+          fi
 
           {
             echo "## Integration Branch"
