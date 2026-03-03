@@ -1,0 +1,102 @@
+name: Build Integration Branch
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+      - ready_for_review
+      - converted_to_draft
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  build-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build integration branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          prs=$(gh pr list --state open --base main --json number,headRefName,isDraft --jq '[.[] | select(.isDraft == false)] | sort_by(.number)')
+          count=$(echo "$prs" | jq length)
+
+          echo "Found $count eligible PR(s)"
+
+          # Always rebuild from main so integration never drifts.
+          git checkout -B integration origin/main
+
+          merged=()
+          conflicted=()
+
+          if [ "$count" -gt 0 ]; then
+            for row in $(echo "$prs" | jq -r '.[] | @base64'); do
+              number=$(echo "$row" | base64 --decode | jq -r '.number')
+              branch=$(echo "$row" | base64 --decode | jq -r '.headRefName')
+
+              echo "--- Merging PR #$number ($branch) ---"
+              git fetch origin "pull/$number/head:pr-$number"
+
+              if git merge --no-ff "pr-$number" -m "Merge PR #$number ($branch)"; then
+                echo "Merged PR #$number"
+                merged+=("$number:$branch")
+              else
+                echo "Conflict merging PR #$number — skipping"
+                git merge --abort
+                conflicted+=("$number:$branch")
+              fi
+            done
+          fi
+
+          new_tree=$(git show -s --format=%T HEAD)
+          remote_tree="$(git show -s --format=%T origin/integration 2>/dev/null || true)"
+          if [ "$new_tree" = "$remote_tree" ]; then
+            echo "Integration tree unchanged; skipping push."
+          else
+            git push --force origin integration
+          fi
+
+          {
+            echo "## Integration Branch"
+            echo ""
+            echo "Built \`integration\` from \`main\` with **${#merged[@]}** PR(s) merged."
+            echo ""
+
+            if [ ${#merged[@]} -gt 0 ]; then
+              echo "### Merged"
+              for entry in "${merged[@]}"; do
+                num="${entry%%:*}"
+                br="${entry#*:}"
+                echo "- PR #$num (\`$br\`)"
+              done
+              echo ""
+            fi
+
+            if [ ${#conflicted[@]} -gt 0 ]; then
+              echo "### Conflicted (skipped)"
+              for entry in "${conflicted[@]}"; do
+                num="${entry%%:*}"
+                br="${entry#*:}"
+                echo "- PR #$num (\`$br\`)"
+              done
+              echo ""
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
