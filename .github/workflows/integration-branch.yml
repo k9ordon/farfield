@@ -66,13 +66,8 @@ jobs:
             done
           fi
 
-          new_tree=$(git show -s --format=%T HEAD)
-          remote_tree="$(git show -s --format=%T origin/integration 2>/dev/null || true)"
-          if [ "$new_tree" = "$remote_tree" ]; then
-            echo "Integration tree unchanged; skipping push."
-          else
-            git push --force origin integration
-          fi
+          # Always move the integration branch tip to this exact rebuild.
+          git push --force origin integration
 
           {
             echo "## Integration Branch"
