@@ -135,9 +135,7 @@ const ITEM_RENDERERS = {
       <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
         Plan
       </div>
-      <div className="text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed">
-        {item.text}
-      </div>
+      <MarkdownText text={item.text} />
     </div>
   ),
 
@@ -174,9 +172,7 @@ const ITEM_RENDERERS = {
       <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
         Plan Implementation
       </div>
-      <div className="text-sm text-foreground whitespace-pre-wrap break-words leading-relaxed">
-        {item.planContent}
-      </div>
+      <MarkdownText text={item.planContent} />
     </div>
   ),
 
