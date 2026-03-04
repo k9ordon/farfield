@@ -20,7 +20,6 @@ import {
   Menu,
   Moon,
   PanelLeft,
-  Pin,
   Plus,
   RefreshCcw,
   Sun,
@@ -153,7 +152,9 @@ function formatDate(value: number | string | null | undefined): string {
   return "";
 }
 
-function threadLabel(thread: Thread): string {
+function threadLabel(thread: Thread, labelsById?: Map<string, string>): string {
+  const customLabel = labelsById?.get(thread.id);
+  if (customLabel) return customLabel;
   const text = thread.preview.trim();
   if (!text) return `thread ${thread.id.slice(0, 8)}`;
   return text;
@@ -200,7 +201,6 @@ const APP_DEFAULT_VALUE = "__app_default__";
 const ASSUMED_APP_DEFAULT_MODEL = "gpt-5.3-codex";
 const ASSUMED_APP_DEFAULT_EFFORT = "medium";
 const SIDEBAR_COLLAPSED_GROUPS_STORAGE_KEY = "farfield.sidebar.collapsed-groups.v1";
-const PINNED_THREAD_IDS_STORAGE_KEY = "farfield.sidebar.pinned-thread-ids.v1";
 const AGENT_FAVICON_BY_ID: Record<AgentId, string> = {
   codex: "https://openai.com/favicon.ico",
   opencode: "https://opencode.ai/favicon.ico"
@@ -415,50 +415,6 @@ function compareThreadsByRecency(left: Thread, right: Thread): number {
   return left.id.localeCompare(right.id);
 }
 
-function readPinnedThreadIdsFromStorage(): string[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  try {
-    const storage = window.localStorage as Partial<Storage> | undefined;
-    if (!storage || typeof storage.getItem !== "function") {
-      return [];
-    }
-    const raw = storage.getItem(PINNED_THREAD_IDS_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    const dedupedIds = new Set<string>();
-    for (const value of parsed) {
-      if (typeof value === "string" && value.length > 0) {
-        dedupedIds.add(value);
-      }
-    }
-    return Array.from(dedupedIds);
-  } catch {
-    return [];
-  }
-}
-
-function writePinnedThreadIdsToStorage(value: string[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    const storage = window.localStorage as Partial<Storage> | undefined;
-    if (!storage || typeof storage.setItem !== "function") {
-      return;
-    }
-    storage.setItem(PINNED_THREAD_IDS_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // Ignore storage errors.
-  }
-}
-
 function readSidebarCollapsedGroupsFromStorage(): Record<string, boolean> {
   if (typeof window === "undefined") {
     return {};
@@ -615,9 +571,6 @@ export function App(): React.JSX.Element {
   const [sidebarCollapsedGroups, setSidebarCollapsedGroups] = useState<Record<string, boolean>>(
     () => readSidebarCollapsedGroupsFromStorage()
   );
-  const [pinnedThreadIds, setPinnedThreadIds] = useState<string[]>(
-    () => readPinnedThreadIdsFromStorage()
-  );
 
   /* Refs */
   const selectedThreadIdRef = useRef<string | null>(null);
@@ -672,7 +625,26 @@ export function App(): React.JSX.Element {
     }
     return labels;
   }, [agentDescriptors]);
-  const pinnedThreadIdsSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
+  const threadLabelsById = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const descriptor of agentDescriptors) {
+      for (const [threadId, label] of Object.entries(descriptor.threadLabels)) {
+        if (!labels.has(threadId)) {
+          labels.set(threadId, label);
+        }
+      }
+    }
+    return labels;
+  }, [agentDescriptors]);
+  const pinnedThreadIdsSet = useMemo(() => {
+    const ids = new Set<string>();
+    for (const descriptor of agentDescriptors) {
+      for (const id of descriptor.pinnedThreadIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [agentDescriptors]);
   const sortedThreads = useMemo(
     () => [...threads].sort(compareThreadsByRecency),
     [threads]
@@ -1383,10 +1355,6 @@ export function App(): React.JSX.Element {
   }, [sidebarCollapsedGroups]);
 
   useEffect(() => {
-    writePinnedThreadIdsToStorage(pinnedThreadIds);
-  }, [pinnedThreadIds]);
-
-  useEffect(() => {
     isChatAtBottomRef.current = isChatAtBottom;
   }, [isChatAtBottom]);
 
@@ -1655,77 +1623,49 @@ export function App(): React.JSX.Element {
     void createNewThread(projectPath, onlyAgentId);
   }, [availableAgentIds, createNewThread]);
 
-  const togglePinnedThread = useCallback((threadId: string) => {
-    setPinnedThreadIds((previousIds) => {
-      if (previousIds.includes(threadId)) {
-        return previousIds.filter((id) => id !== threadId);
-      }
-      return [threadId, ...previousIds];
-    });
-  }, []);
-
   const renderSidebarContent = (viewport: "desktop" | "mobile"): React.JSX.Element => {
     const renderSidebarThreadRow = (thread: Thread): React.JSX.Element => {
       const isSelected = thread.id === selectedThreadId;
       const threadIsGenerating = isSelected && isGenerating;
-      const isPinned = pinnedThreadIdsSet.has(thread.id);
 
       return (
-        <div key={thread.id} className="group/thread flex items-center gap-1">
-          <Button
-            type="button"
-            onClick={() => {
-              setSelectedThreadId(thread.id);
-              setMobileSidebarOpen(false);
-            }}
-            variant="ghost"
-            className={`w-full min-w-0 h-auto flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] tracking-tight font-normal transition-colors ${
-              isSelected
-                ? "bg-muted/90 text-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            }`}
-          >
-            <span className="min-w-0 flex-1 flex items-center gap-1.5 truncate leading-5">
-              {thread.agentId && (
-                <span className="shrink-0 h-4 w-4 rounded-sm bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
-                  <AgentFavicon
-                    agentId={thread.agentId}
-                    label={agentsById[thread.agentId]?.label ?? "Agent"}
-                    className="h-3.5 w-3.5"
-                  />
-                </span>
-              )}
-              <span className="truncate">{threadLabel(thread)}</span>
-            </span>
-            <span className="shrink-0 flex items-center gap-1.5">
-              {threadIsGenerating && (
-                <Loader2 size={11} className="animate-spin text-muted-foreground/70" />
-              )}
-              {thread.updatedAt && (
-                <span className="text-[10px] text-muted-foreground/50">
-                  {formatDate(thread.updatedAt)}
-                </span>
-              )}
-            </span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={(event) => {
-              event.stopPropagation();
-              togglePinnedThread(thread.id);
-            }}
-            className={`h-7 w-7 shrink-0 rounded-lg transition ${
-              isPinned
-                ? "text-foreground bg-muted/70 hover:bg-muted"
-                : "text-muted-foreground/60 opacity-0 group-hover/thread:opacity-100 hover:text-foreground hover:bg-muted/70"
-            }`}
-            title={isPinned ? "Unpin thread" : "Pin thread"}
-          >
-            <Pin size={12} className={isPinned ? "fill-current" : ""} />
-          </Button>
-        </div>
+        <Button
+          key={thread.id}
+          type="button"
+          onClick={() => {
+            setSelectedThreadId(thread.id);
+            setMobileSidebarOpen(false);
+          }}
+          variant="ghost"
+          className={`w-full min-w-0 h-auto flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] tracking-tight font-normal transition-colors ${
+            isSelected
+              ? "bg-muted/90 text-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+          }`}
+        >
+          <span className="min-w-0 flex-1 flex items-center gap-1.5 truncate leading-5">
+            {thread.agentId && (
+              <span className="shrink-0 h-4 w-4 rounded-sm bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
+                <AgentFavicon
+                  agentId={thread.agentId}
+                  label={agentsById[thread.agentId]?.label ?? "Agent"}
+                  className="h-3.5 w-3.5"
+                />
+              </span>
+            )}
+            <span className="truncate">{threadLabel(thread, threadLabelsById)}</span>
+          </span>
+          <span className="shrink-0 flex items-center gap-1.5">
+            {threadIsGenerating && (
+              <Loader2 size={11} className="animate-spin text-muted-foreground/70" />
+            )}
+            {thread.updatedAt && (
+              <span className="text-[10px] text-muted-foreground/50">
+                {formatDate(thread.updatedAt)}
+              </span>
+            )}
+          </span>
+        </Button>
       );
     };
 
@@ -2078,7 +2018,7 @@ export function App(): React.JSX.Element {
             )}
             <div className="min-w-0">
               <div className="text-sm font-medium truncate leading-5 flex items-center gap-1.5">
-                {selectedThread ? threadLabel(selectedThread) : "No thread selected"}
+                {selectedThread ? threadLabel(selectedThread, threadLabelsById) : "No thread selected"}
                 {selectedThread && activeAgentLabel && (
                   <span className="shrink-0 h-5 w-5 rounded-md bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
                     <AgentFavicon

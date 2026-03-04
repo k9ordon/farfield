@@ -88,6 +88,8 @@ let agentsFixture: {
     capabilities: CapabilityFixture;
     projectDirectories: string[];
     projectLabels?: Record<string, string>;
+    threadLabels?: Record<string, string>;
+    pinnedThreadIds?: string[];
   }>;
   defaultAgentId: "codex" | "opencode";
 };
@@ -470,6 +472,61 @@ describe("App", () => {
     render(<App />);
     expect(await screen.findByRole("button", { name: "renamed-site" })).toBeTruthy();
   });
+
+  it("renders pinned threads from Codex agent metadata", async () => {
+    agentsFixture = {
+      ok: true,
+      agents: [
+        {
+          id: "codex",
+          label: "Codex",
+          enabled: true,
+          connected: true,
+          capabilities: codexCapabilities,
+          projectDirectories: ["/tmp/site"],
+          threadLabels: {
+            "thread-pinned": "Pinned from Codex API"
+          },
+          pinnedThreadIds: ["thread-pinned"]
+        }
+      ],
+      defaultAgentId: "codex"
+    };
+
+    threadsFixture = {
+      ok: true,
+      data: [
+        {
+          id: "thread-regular",
+          preview: "regular thread",
+          createdAt: 1700000000,
+          updatedAt: 1700000001,
+          cwd: "/tmp/site",
+          source: "opencode",
+          agentId: "codex"
+        },
+        {
+          id: "thread-pinned",
+          preview: "pinned thread preview",
+          createdAt: 1700000000,
+          updatedAt: 1700000002,
+          cwd: "/tmp/site",
+          source: "opencode",
+          agentId: "codex"
+        }
+      ],
+      nextCursor: null,
+      pages: 1,
+      truncated: false
+    };
+
+    render(<App />);
+    expect(await screen.findByText("Pinned")).toBeTruthy();
+    expect(await screen.findByText("Pinned from Codex API")).toBeTruthy();
+    expect(screen.queryByTitle("Pin thread")).toBeNull();
+    expect(screen.queryByTitle("Unpin thread")).toBeNull();
+  });
+
   it("updates the picker when remote model changes with same updatedAt and turns", async () => {
     const threadId = "thread-1";
     let modelId = "gpt-old-codex";

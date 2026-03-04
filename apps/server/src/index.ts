@@ -41,7 +41,14 @@ const CODEX_GLOBAL_STATE_PATH = path.join(os.homedir(), ".codex", ".codex-global
 
 const CodexGlobalStateSchema = z
   .object({
-    "electron-workspace-root-labels": z.record(z.string()).default({})
+    "electron-workspace-root-labels": z.record(z.string()).default({}),
+    "thread-titles": z
+      .object({
+        titles: z.record(z.string()).default({})
+      })
+      .passthrough()
+      .default({ titles: {} }),
+    "pinned-thread-ids": z.array(z.string()).default([])
   })
   .passthrough();
 
@@ -114,24 +121,23 @@ function resolveGitCommitHash(): string | null {
   }
 }
 
-function readCodexWorkspaceRootLabels(): Record<string, string> {
+function readCodexGlobalState(): z.infer<typeof CodexGlobalStateSchema> | null {
   try {
     if (!fs.existsSync(CODEX_GLOBAL_STATE_PATH)) {
-      return {};
+      return null;
     }
 
     const rawState = fs.readFileSync(CODEX_GLOBAL_STATE_PATH, "utf8");
-    const parsedState = CodexGlobalStateSchema.parse(JSON.parse(rawState));
-    return parsedState["electron-workspace-root-labels"];
+    return CodexGlobalStateSchema.parse(JSON.parse(rawState));
   } catch (error) {
     logger.warn(
       {
         path: CODEX_GLOBAL_STATE_PATH,
         error: toErrorMessage(error)
       },
-      "codex-workspace-labels-read-failed"
+      "codex-global-state-read-failed"
     );
-    return {};
+    return null;
   }
 }
 
@@ -412,7 +418,9 @@ const registry = new AgentRegistry(adapters);
 function buildAgentDescriptor(
   adapter: AgentAdapter,
   projectDirectories: string[],
-  projectLabels: Record<string, string>
+  projectLabels: Record<string, string>,
+  threadLabels: Record<string, string>,
+  pinnedThreadIds: string[]
 ): AgentDescriptor {
   return {
     id: adapter.id,
@@ -421,7 +429,9 @@ function buildAgentDescriptor(
     connected: adapter.isConnected(),
     capabilities: adapter.capabilities,
     projectDirectories,
-    projectLabels
+    projectLabels,
+    threadLabels,
+    pinnedThreadIds
   };
 }
 
@@ -575,17 +585,28 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && pathname === "/api/agents") {
-      const codexWorkspaceRootLabels = codexAdapter ? readCodexWorkspaceRootLabels() : {};
+      const codexGlobalState = codexAdapter ? readCodexGlobalState() : null;
+      const codexWorkspaceRootLabels = codexGlobalState?.["electron-workspace-root-labels"] ?? {};
+      const codexThreadLabels = codexGlobalState?.["thread-titles"].titles ?? {};
+      const codexPinnedThreadIds = codexGlobalState?.["pinned-thread-ids"] ?? [];
       const descriptors = await Promise.all(
         registry.listAdapters().map(async (adapter) => {
           const projectLabels = adapter.id === "codex" ? codexWorkspaceRootLabels : {};
+          const threadLabels = adapter.id === "codex" ? codexThreadLabels : {};
+          const pinnedThreadIds = adapter.id === "codex" ? codexPinnedThreadIds : [];
           if (!adapter.listProjectDirectories || !adapter.isConnected()) {
-            return buildAgentDescriptor(adapter, [], projectLabels);
+            return buildAgentDescriptor(adapter, [], projectLabels, threadLabels, pinnedThreadIds);
           }
 
           try {
             const projectDirectories = await adapter.listProjectDirectories();
-            return buildAgentDescriptor(adapter, projectDirectories, projectLabels);
+            return buildAgentDescriptor(
+              adapter,
+              projectDirectories,
+              projectLabels,
+              threadLabels,
+              pinnedThreadIds
+            );
           } catch (error) {
             logger.warn(
               {
@@ -594,7 +615,7 @@ const server = http.createServer(async (req, res) => {
               },
               "agent-project-directory-list-failed"
             );
-            return buildAgentDescriptor(adapter, [], projectLabels);
+            return buildAgentDescriptor(adapter, [], projectLabels, threadLabels, pinnedThreadIds);
           }
         })
       );
