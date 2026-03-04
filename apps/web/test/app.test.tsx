@@ -88,7 +88,6 @@ let agentsFixture: {
     capabilities: CapabilityFixture;
     projectDirectories: string[];
     projectLabels?: Record<string, string>;
-    threadLabels?: Record<string, string>;
     pinnedThreadIds?: string[];
     threadWorkspaceRootHints?: Record<string, string>;
   }>;
@@ -99,6 +98,7 @@ let threadsFixture: {
   ok: true;
   data: Array<{
     id: string;
+    name?: string | null;
     preview: string;
     createdAt: number;
     updatedAt: number;
@@ -485,9 +485,6 @@ describe("App", () => {
           connected: true,
           capabilities: codexCapabilities,
           projectDirectories: ["/tmp/site"],
-          threadLabels: {
-            "thread-pinned": "Pinned from Codex API"
-          },
           pinnedThreadIds: ["thread-pinned"]
         }
       ],
@@ -508,6 +505,7 @@ describe("App", () => {
         },
         {
           id: "thread-pinned",
+          name: "Pinned from Codex API",
           preview: "pinned thread preview",
           createdAt: 1700000000,
           updatedAt: 1700000002,

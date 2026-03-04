@@ -42,12 +42,6 @@ const CODEX_GLOBAL_STATE_PATH = path.join(os.homedir(), ".codex", ".codex-global
 const CodexGlobalStateSchema = z
   .object({
     "electron-workspace-root-labels": z.record(z.string()).default({}),
-    "thread-titles": z
-      .object({
-        titles: z.record(z.string()).default({})
-      })
-      .passthrough()
-      .default({ titles: {} }),
     "pinned-thread-ids": z.array(z.string()).default([]),
     "thread-workspace-root-hints": z.record(z.string()).default({})
   })
@@ -420,7 +414,6 @@ function buildAgentDescriptor(
   adapter: AgentAdapter,
   projectDirectories: string[],
   projectLabels: Record<string, string>,
-  threadLabels: Record<string, string>,
   pinnedThreadIds: string[],
   threadWorkspaceRootHints: Record<string, string>
 ): AgentDescriptor {
@@ -432,7 +425,6 @@ function buildAgentDescriptor(
     capabilities: adapter.capabilities,
     projectDirectories,
     projectLabels,
-    threadLabels,
     pinnedThreadIds,
     threadWorkspaceRootHints
   };
@@ -590,13 +582,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/api/agents") {
       const codexGlobalState = codexAdapter ? readCodexGlobalState() : null;
       const codexWorkspaceRootLabels = codexGlobalState?.["electron-workspace-root-labels"] ?? {};
-      const codexThreadLabels = codexGlobalState?.["thread-titles"].titles ?? {};
       const codexPinnedThreadIds = codexGlobalState?.["pinned-thread-ids"] ?? [];
       const codexThreadWorkspaceRootHints = codexGlobalState?.["thread-workspace-root-hints"] ?? {};
       const descriptors = await Promise.all(
         registry.listAdapters().map(async (adapter) => {
           const projectLabels = adapter.id === "codex" ? codexWorkspaceRootLabels : {};
-          const threadLabels = adapter.id === "codex" ? codexThreadLabels : {};
           const pinnedThreadIds = adapter.id === "codex" ? codexPinnedThreadIds : [];
           const threadWorkspaceRootHints = adapter.id === "codex" ? codexThreadWorkspaceRootHints : {};
           if (!adapter.listProjectDirectories || !adapter.isConnected()) {
@@ -604,7 +594,6 @@ const server = http.createServer(async (req, res) => {
               adapter,
               [],
               projectLabels,
-              threadLabels,
               pinnedThreadIds,
               threadWorkspaceRootHints
             );
@@ -616,7 +605,6 @@ const server = http.createServer(async (req, res) => {
               adapter,
               projectDirectories,
               projectLabels,
-              threadLabels,
               pinnedThreadIds,
               threadWorkspaceRootHints
             );
@@ -632,7 +620,6 @@ const server = http.createServer(async (req, res) => {
               adapter,
               [],
               projectLabels,
-              threadLabels,
               pinnedThreadIds,
               threadWorkspaceRootHints
             );

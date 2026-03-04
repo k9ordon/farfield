@@ -141,6 +141,8 @@ interface RefreshFlags {
   refreshSelectedThread: boolean;
 }
 
+const ThreadNameSchema = z.string().trim().min(1);
+
 /* ── Helpers ────────────────────────────────────────────────── */
 function formatDate(value: number | string | null | undefined): string {
   if (typeof value === "number") return new Date(value * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -152,13 +154,11 @@ function formatDate(value: number | string | null | undefined): string {
   return "";
 }
 
-function threadLabel(thread: Thread, labelsById?: Map<string, string>): string {
-  const threadName = thread["name"];
-  if (typeof threadName === "string" && threadName.trim().length > 0) {
-    return threadName.trim();
+function threadLabel(thread: Thread): string {
+  const parsedThreadName = ThreadNameSchema.safeParse(thread.name);
+  if (parsedThreadName.success) {
+    return parsedThreadName.data;
   }
-  const customLabel = labelsById?.get(thread.id);
-  if (customLabel) return customLabel;
   const text = thread.preview.trim();
   if (!text) return `thread ${thread.id.slice(0, 8)}`;
   return text;
@@ -624,17 +624,6 @@ export function App(): React.JSX.Element {
       for (const [projectPath, label] of Object.entries(descriptor.projectLabels)) {
         if (!labels.has(projectPath)) {
           labels.set(projectPath, label);
-        }
-      }
-    }
-    return labels;
-  }, [agentDescriptors]);
-  const threadLabelsById = useMemo(() => {
-    const labels = new Map<string, string>();
-    for (const descriptor of agentDescriptors) {
-      for (const [threadId, label] of Object.entries(descriptor.threadLabels)) {
-        if (!labels.has(threadId)) {
-          labels.set(threadId, label);
         }
       }
     }
@@ -1669,7 +1658,7 @@ export function App(): React.JSX.Element {
                 />
               </span>
             )}
-            <span className="truncate">{threadLabel(thread, threadLabelsById)}</span>
+            <span className="truncate">{threadLabel(thread)}</span>
           </span>
           <span className="shrink-0 flex items-center gap-1.5">
             {threadIsGenerating && (
@@ -2034,7 +2023,7 @@ export function App(): React.JSX.Element {
             )}
             <div className="min-w-0">
               <div className="text-sm font-medium truncate leading-5 flex items-center gap-1.5">
-                {selectedThread ? threadLabel(selectedThread, threadLabelsById) : "No thread selected"}
+                {selectedThread ? threadLabel(selectedThread) : "No thread selected"}
                 {selectedThread && activeAgentLabel && (
                   <span className="shrink-0 h-5 w-5 rounded-md bg-muted/30 ring-1 ring-border/60 flex items-center justify-center overflow-hidden">
                     <AgentFavicon

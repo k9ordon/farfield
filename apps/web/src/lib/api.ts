@@ -187,7 +187,6 @@ const AgentsResponseSchema = z
         capabilities: AgentCapabilitiesSchema,
         projectDirectories: z.array(z.string()),
         projectLabels: z.record(z.string()).default({}),
-        threadLabels: z.record(z.string()).default({}),
         pinnedThreadIds: z.array(z.string()).default([]),
         threadWorkspaceRootHints: z.record(z.string()).default({})
       })

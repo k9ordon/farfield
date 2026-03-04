@@ -117,7 +117,6 @@ export interface AgentDescriptor {
   capabilities: AgentCapabilities;
   projectDirectories: string[];
   projectLabels: Record<string, string>;
-  threadLabels: Record<string, string>;
   pinnedThreadIds: string[];
   threadWorkspaceRootHints: Record<string, string>;
 }
