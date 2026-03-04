@@ -48,7 +48,8 @@ const CodexGlobalStateSchema = z
       })
       .passthrough()
       .default({ titles: {} }),
-    "pinned-thread-ids": z.array(z.string()).default([])
+    "pinned-thread-ids": z.array(z.string()).default([]),
+    "thread-workspace-root-hints": z.record(z.string()).default({})
   })
   .passthrough();
 
@@ -420,7 +421,8 @@ function buildAgentDescriptor(
   projectDirectories: string[],
   projectLabels: Record<string, string>,
   threadLabels: Record<string, string>,
-  pinnedThreadIds: string[]
+  pinnedThreadIds: string[],
+  threadWorkspaceRootHints: Record<string, string>
 ): AgentDescriptor {
   return {
     id: adapter.id,
@@ -431,7 +433,8 @@ function buildAgentDescriptor(
     projectDirectories,
     projectLabels,
     threadLabels,
-    pinnedThreadIds
+    pinnedThreadIds,
+    threadWorkspaceRootHints
   };
 }
 
@@ -589,13 +592,22 @@ const server = http.createServer(async (req, res) => {
       const codexWorkspaceRootLabels = codexGlobalState?.["electron-workspace-root-labels"] ?? {};
       const codexThreadLabels = codexGlobalState?.["thread-titles"].titles ?? {};
       const codexPinnedThreadIds = codexGlobalState?.["pinned-thread-ids"] ?? [];
+      const codexThreadWorkspaceRootHints = codexGlobalState?.["thread-workspace-root-hints"] ?? {};
       const descriptors = await Promise.all(
         registry.listAdapters().map(async (adapter) => {
           const projectLabels = adapter.id === "codex" ? codexWorkspaceRootLabels : {};
           const threadLabels = adapter.id === "codex" ? codexThreadLabels : {};
           const pinnedThreadIds = adapter.id === "codex" ? codexPinnedThreadIds : [];
+          const threadWorkspaceRootHints = adapter.id === "codex" ? codexThreadWorkspaceRootHints : {};
           if (!adapter.listProjectDirectories || !adapter.isConnected()) {
-            return buildAgentDescriptor(adapter, [], projectLabels, threadLabels, pinnedThreadIds);
+            return buildAgentDescriptor(
+              adapter,
+              [],
+              projectLabels,
+              threadLabels,
+              pinnedThreadIds,
+              threadWorkspaceRootHints
+            );
           }
 
           try {
@@ -605,7 +617,8 @@ const server = http.createServer(async (req, res) => {
               projectDirectories,
               projectLabels,
               threadLabels,
-              pinnedThreadIds
+              pinnedThreadIds,
+              threadWorkspaceRootHints
             );
           } catch (error) {
             logger.warn(
@@ -615,7 +628,14 @@ const server = http.createServer(async (req, res) => {
               },
               "agent-project-directory-list-failed"
             );
-            return buildAgentDescriptor(adapter, [], projectLabels, threadLabels, pinnedThreadIds);
+            return buildAgentDescriptor(
+              adapter,
+              [],
+              projectLabels,
+              threadLabels,
+              pinnedThreadIds,
+              threadWorkspaceRootHints
+            );
           }
         })
       );

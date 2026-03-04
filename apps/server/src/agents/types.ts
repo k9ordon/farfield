@@ -119,6 +119,7 @@ export interface AgentDescriptor {
   projectLabels: Record<string, string>;
   threadLabels: Record<string, string>;
   pinnedThreadIds: string[];
+  threadWorkspaceRootHints: Record<string, string>;
 }
 
 export interface AgentAdapter {

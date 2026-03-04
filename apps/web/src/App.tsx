@@ -636,6 +636,17 @@ export function App(): React.JSX.Element {
     }
     return labels;
   }, [agentDescriptors]);
+  const threadWorkspaceRootHintsByThreadId = useMemo(() => {
+    const hints = new Map<string, string>();
+    for (const descriptor of agentDescriptors) {
+      for (const [threadId, workspaceRoot] of Object.entries(descriptor.threadWorkspaceRootHints)) {
+        if (!hints.has(threadId)) {
+          hints.set(threadId, workspaceRoot);
+        }
+      }
+    }
+    return hints;
+  }, [agentDescriptors]);
   const pinnedThreadIdsSet = useMemo(() => {
     const ids = new Set<string>();
     for (const descriptor of agentDescriptors) {
@@ -669,13 +680,14 @@ export function App(): React.JSX.Element {
     const groups = new Map<string, Group>();
 
     for (const thread of unpinnedThreads) {
+      const hintedProjectPath = threadWorkspaceRootHintsByThreadId.get(thread.id) ?? null;
       const cwd = typeof thread.cwd === "string" && thread.cwd.trim() ? thread.cwd.trim() : null;
       const path = typeof thread.path === "string" && thread.path.trim() ? thread.path.trim() : null;
-      const projectPath = cwd ?? path;
+      const projectPath = hintedProjectPath ?? cwd ?? path;
       const label = projectPath
         ? (projectLabelsByPath.get(projectPath) ?? basenameFromPath(projectPath))
         : "Unknown";
-      const key = `project:${label.trim().toLocaleLowerCase()}`;
+      const key = projectPath ? `project:${projectPath}` : "project:unknown";
       const updatedAt = threadSortTimestamp(thread);
       const threadAgentId = thread.agentId;
 
@@ -711,7 +723,7 @@ export function App(): React.JSX.Element {
           continue;
         }
         const label = projectLabelsByPath.get(normalized) ?? basenameFromPath(normalized);
-        const key = `project:${label.trim().toLocaleLowerCase()}`;
+        const key = `project:${normalized}`;
         if (groups.has(key)) {
           continue;
         }
@@ -738,7 +750,7 @@ export function App(): React.JSX.Element {
         }
         return left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
       });
-  }, [agentDescriptors, projectLabelsByPath, unpinnedThreads]);
+  }, [agentDescriptors, projectLabelsByPath, threadWorkspaceRootHintsByThreadId, unpinnedThreads]);
   const conversationState = useMemo(() => {
     const liveConversationState = liveState?.conversationState ?? null;
     const readConversationState = readThreadState?.thread ?? null;

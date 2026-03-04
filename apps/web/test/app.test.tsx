@@ -90,6 +90,7 @@ let agentsFixture: {
     projectLabels?: Record<string, string>;
     threadLabels?: Record<string, string>;
     pinnedThreadIds?: string[];
+    threadWorkspaceRootHints?: Record<string, string>;
   }>;
   defaultAgentId: "codex" | "opencode";
 };
@@ -525,6 +526,50 @@ describe("App", () => {
     expect(await screen.findByText("Pinned from Codex API")).toBeTruthy();
     expect(screen.queryByTitle("Pin thread")).toBeNull();
     expect(screen.queryByTitle("Unpin thread")).toBeNull();
+  });
+
+  it("uses Codex workspace root hints for group names", async () => {
+    agentsFixture = {
+      ok: true,
+      agents: [
+        {
+          id: "codex",
+          label: "Codex",
+          enabled: true,
+          connected: true,
+          capabilities: codexCapabilities,
+          projectDirectories: ["/tmp/repo-root"],
+          projectLabels: {
+            "/tmp/repo-root": "renamed-from-codex"
+          },
+          threadWorkspaceRootHints: {
+            "thread-hinted": "/tmp/repo-root"
+          }
+        }
+      ],
+      defaultAgentId: "codex"
+    };
+
+    threadsFixture = {
+      ok: true,
+      data: [
+        {
+          id: "thread-hinted",
+          preview: "thread in worktree",
+          createdAt: 1700000000,
+          updatedAt: 1700000002,
+          cwd: "/tmp/worktrees/repo/apps/server",
+          source: "opencode",
+          agentId: "codex"
+        }
+      ],
+      nextCursor: null,
+      pages: 1,
+      truncated: false
+    };
+
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "renamed-from-codex" })).toBeTruthy();
   });
 
   it("updates the picker when remote model changes with same updatedAt and turns", async () => {
