@@ -153,6 +153,10 @@ function formatDate(value: number | string | null | undefined): string {
 }
 
 function threadLabel(thread: Thread, labelsById?: Map<string, string>): string {
+  const threadName = thread["name"];
+  if (typeof threadName === "string" && threadName.trim().length > 0) {
+    return threadName.trim();
+  }
   const customLabel = labelsById?.get(thread.id);
   if (customLabel) return customLabel;
   const text = thread.preview.trim();
