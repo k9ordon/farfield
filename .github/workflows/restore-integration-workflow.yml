@@ -1,0 +1,76 @@
+name: Restore Integration Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to restore into
+        required: true
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: restore-integration-workflow-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  restore-integration-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workflow ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create restore PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          source_file=".github/workflows/integration-branch.yml"
+          if [ ! -f "$source_file" ]; then
+            echo "Source integration workflow missing on this ref: $source_file"
+            exit 1
+          fi
+
+          restore_branch="codex/restore-integration-workflow-${RUN_ID}"
+          workflow_content="$(cat "$source_file")"
+
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B "$restore_branch" "origin/$TARGET_BRANCH"
+
+          mkdir -p .github/workflows
+          printf '%s\n' "$workflow_content" > "$source_file"
+
+          if git diff --quiet -- "$source_file"; then
+            echo "No changes required; integration workflow already matches target branch."
+            {
+              echo "## Restore Integration Workflow"
+              echo "No PR created because target branch already contains the same workflow content."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git add "$source_file"
+          git commit -m "Restore integration branch workflow"
+          git push --force --set-upstream origin "$restore_branch"
+
+          pr_url=$(gh pr create \
+            --base "$TARGET_BRANCH" \
+            --head "$restore_branch" \
+            --title "Restore integration branch workflow" \
+            --body "Automated restore PR for \\`.github/workflows/integration-branch.yml\\`." )
+
+          {
+            echo "## Restore Integration Workflow"
+            echo "Created PR: $pr_url"
+          } >> "$GITHUB_STEP_SUMMARY"
