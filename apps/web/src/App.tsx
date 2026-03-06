@@ -592,6 +592,7 @@ export function App(): React.JSX.Element {
   const lastAppliedModeSignatureRef = useRef("");
   const hasHydratedAgentSelectionRef = useRef(false);
   const pendingMaterializationThreadIdsRef = useRef<Set<string>>(new Set());
+  const selectedThreadLoadSequenceRef = useRef(0);
   const threadsSignatureRef = useRef<string[]>([]);
   const modesSignatureRef = useRef<string[]>([]);
   const modelsSignatureRef = useRef<string[]>([]);
@@ -745,14 +746,20 @@ export function App(): React.JSX.Element {
       });
   }, [agentDescriptors, projectLabelsByPath, threadWorkspaceRootHintsByThreadId, unpinnedThreads]);
   const conversationState = useMemo(() => {
-    const liveConversationState = liveState?.conversationState ?? null;
-    const readConversationState = readThreadState?.thread ?? null;
+    const liveConversationState =
+      liveState && liveState.threadId === selectedThreadId
+        ? (liveState.conversationState ?? null)
+        : null;
+    const readConversationState =
+      readThreadState && readThreadState.thread.id === selectedThreadId
+        ? readThreadState.thread
+        : null;
     if (!liveConversationState) return readConversationState;
     if (!readConversationState) return liveConversationState;
     const liveUpdatedAt = getConversationStateUpdatedAt(liveConversationState);
     const readUpdatedAt = getConversationStateUpdatedAt(readConversationState);
     return liveUpdatedAt > readUpdatedAt ? liveConversationState : readConversationState;
-  }, [liveState?.conversationState, readThreadState?.thread]);
+  }, [liveState, readThreadState, selectedThreadId]);
 
   const pendingRequests = useMemo(() => {
     if (!conversationState) return [] as PendingRequest[];
@@ -1023,6 +1030,8 @@ export function App(): React.JSX.Element {
   }, []);
 
   const loadSelectedThread = useCallback(async (threadId: string) => {
+    const loadSequence = selectedThreadLoadSequenceRef.current + 1;
+    selectedThreadLoadSequenceRef.current = loadSequence;
     const includeTurns = !pendingMaterializationThreadIdsRef.current.has(threadId);
     const thread = threads.find((entry) => entry.id === threadId) ?? null;
     const threadAgentId = thread?.agentId ?? selectedAgentId;
@@ -1030,53 +1039,69 @@ export function App(): React.JSX.Element {
     const canReadLiveState = descriptor?.capabilities.canReadLiveState ?? (threadAgentId === "codex");
     const canReadStreamEvents = descriptor?.capabilities.canReadStreamEvents ?? (threadAgentId === "codex");
 
-    const [live, stream, read] = await Promise.all([
-      canReadLiveState
-        ? getLiveState(threadId)
-        : Promise.resolve({
-            ok: true as const,
-            threadId,
-            ownerClientId: null,
-            conversationState: null,
-            liveStateError: null
-          }),
-      canReadStreamEvents
-        ? getStreamEvents(threadId)
-        : Promise.resolve({
-            ok: true as const,
-            threadId,
-            ownerClientId: null,
-            events: []
-          }),
-      readThread(threadId, { includeTurns })
-    ]);
-    if ((live.conversationState?.turns.length ?? 0) > 0 || read.thread.turns.length > 0) {
-      pendingMaterializationThreadIdsRef.current.delete(threadId);
+    try {
+      const [live, stream, read] = await Promise.all([
+        canReadLiveState
+          ? getLiveState(threadId)
+          : Promise.resolve({
+              ok: true as const,
+              threadId,
+              ownerClientId: null,
+              conversationState: null,
+              liveStateError: null
+            }),
+        canReadStreamEvents
+          ? getStreamEvents(threadId)
+          : Promise.resolve({
+              ok: true as const,
+              threadId,
+              ownerClientId: null,
+              events: []
+            }),
+        readThread(threadId, { includeTurns })
+      ]);
+      if (
+        selectedThreadLoadSequenceRef.current !== loadSequence ||
+        selectedThreadIdRef.current !== threadId
+      ) {
+        return;
+      }
+      if ((live.conversationState?.turns.length ?? 0) > 0 || read.thread.turns.length > 0) {
+        pendingMaterializationThreadIdsRef.current.delete(threadId);
+      }
+      startTransition(() => {
+        setLiveState((prev) => {
+          if (buildLiveStateSyncSignature(prev) === buildLiveStateSyncSignature(live)) {
+            return prev;
+          }
+          return live;
+        });
+        setReadThreadState((prev) => {
+          if (buildReadThreadSyncSignature(prev) === buildReadThreadSyncSignature(read)) {
+            return prev;
+          }
+          return read;
+        });
+        setStreamEvents((prev) => {
+          const prevLast = prev[prev.length - 1];
+          const nextLast = stream.events[stream.events.length - 1];
+          const prevLastSignature = prevLast ? JSON.stringify(prevLast) : "";
+          const nextLastSignature = nextLast ? JSON.stringify(nextLast) : "";
+          if (prev.length === stream.events.length && prevLastSignature === nextLastSignature) {
+            return prev;
+          }
+          return stream.events;
+        });
+      });
+    } catch (error) {
+      if (
+        selectedThreadLoadSequenceRef.current !== loadSequence ||
+        selectedThreadIdRef.current !== threadId
+      ) {
+        return;
+      }
+      throw error;
     }
-    startTransition(() => {
-      setLiveState((prev) => {
-        if (buildLiveStateSyncSignature(prev) === buildLiveStateSyncSignature(live)) {
-          return prev;
-        }
-        return live;
-      });
-      setReadThreadState((prev) => {
-        if (buildReadThreadSyncSignature(prev) === buildReadThreadSyncSignature(read)) {
-          return prev;
-        }
-        return read;
-      });
-      setStreamEvents((prev) => {
-        const prevLast = prev[prev.length - 1];
-        const nextLast = stream.events[stream.events.length - 1];
-        const prevLastSignature = prevLast ? JSON.stringify(prevLast) : "";
-        const nextLastSignature = nextLast ? JSON.stringify(nextLast) : "";
-        if (prev.length === stream.events.length && prevLastSignature === nextLastSignature) {
-          return prev;
-        }
-        return stream.events;
-      });
-    });
   }, [agentsById, selectedAgentId, threads]);
 
   const refreshAll = useCallback(async () => {
@@ -1130,11 +1155,17 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     if (!selectedThreadId) {
+      selectedThreadLoadSequenceRef.current += 1;
       setLiveState(null);
       setReadThreadState(null);
       setStreamEvents([]);
       return;
     }
+    startTransition(() => {
+      setLiveState(null);
+      setReadThreadState(null);
+      setStreamEvents([]);
+    });
     void loadSelectedThread(selectedThreadId).catch((e) => setError(toErrorMessage(e)));
   }, [loadSelectedThread, selectedThreadId]);
 
