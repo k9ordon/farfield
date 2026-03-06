@@ -79,9 +79,35 @@ export const UserMessageImageContentPartSchema = z
   })
   .passthrough();
 
+export const UserMessageLocalImageContentPartSchema = z
+  .object({
+    type: z.literal("localImage"),
+    path: z.string()
+  })
+  .passthrough();
+
+export const UserMessageSkillContentPartSchema = z
+  .object({
+    type: z.literal("skill"),
+    name: z.string(),
+    path: z.string()
+  })
+  .passthrough();
+
+export const UserMessageMentionContentPartSchema = z
+  .object({
+    type: z.literal("mention"),
+    name: z.string(),
+    path: z.string()
+  })
+  .passthrough();
+
 export const UserMessagePartSchema = z.union([
   UserMessageContentPartSchema,
-  UserMessageImageContentPartSchema
+  UserMessageImageContentPartSchema,
+  UserMessageLocalImageContentPartSchema,
+  UserMessageSkillContentPartSchema,
+  UserMessageMentionContentPartSchema
 ]);
 
 export const UserMessageItemSchema = z
