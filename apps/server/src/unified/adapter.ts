@@ -1,6 +1,7 @@
 import {
   assertNever,
   type ThreadConversationState,
+  UserMessagePartSchema,
   UserInputRequestSchema,
 } from "@farfield/protocol";
 import {
@@ -32,6 +33,7 @@ type UnifiedCommandResultByKind<K extends UnifiedCommandKind> = Extract<
   UnifiedCommandResult,
   { kind: K }
 >;
+type UserMessagePart = z.infer<typeof UserMessagePartSchema>;
 
 type UnifiedCommandHandler<K extends UnifiedCommandKind> = (
   command: UnifiedCommandByKind<K>,
@@ -894,22 +896,14 @@ function mapTurnItem(
       return {
         id: item.id,
         type: "userMessage",
-        content: item.content.map((part) =>
-          part.type === "text"
-            ? { type: "text", text: part.text }
-            : { type: "image", url: part.url },
-        ),
+        content: item.content.map((part) => mapUserMessagePartToUnifiedInputPart(part)),
       };
 
     case "steeringUserMessage":
       return {
         id: item.id,
         type: "steeringUserMessage",
-        content: item.content.map((part) =>
-          part.type === "text"
-            ? { type: "text", text: part.text }
-            : { type: "image", url: part.url },
-        ),
+        content: item.content.map((part) => mapUserMessagePartToUnifiedInputPart(part)),
         ...(item.attachments
           ? {
               attachments: item.attachments.map((attachment) =>
@@ -1171,6 +1165,25 @@ function mapTurnItem(
 
     default:
       return assertNever(item);
+  }
+}
+
+function mapUserMessagePartToUnifiedInputPart(
+  part: UserMessagePart,
+): { type: "text"; text: string } | { type: "image"; url: string } {
+  switch (part.type) {
+    case "text":
+      return { type: "text", text: part.text };
+    case "image":
+      return { type: "image", url: part.url };
+    case "localImage":
+      return { type: "text", text: part.path };
+    case "skill":
+      return { type: "text", text: part.name };
+    case "mention":
+      return { type: "text", text: part.name };
+    default:
+      return assertNever(part);
   }
 }
 
